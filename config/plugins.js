@@ -25,6 +25,9 @@ module.exports = () => ({
     config: {
       jwtManagement: 'refresh',
       sessions: {
+        accessTokenLifespan: 10 * 60,
+        maxRefreshTokenLifespan: 30 * 24 * 60 * 60,
+        idleRefreshTokenLifespan: 14 * 24 * 60 * 60,
         httpOnly: true,
       },
     },

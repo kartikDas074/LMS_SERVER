@@ -4,6 +4,16 @@ const _ = require('lodash');
 const utils = require('@strapi/utils');
 const { ApplicationError, ValidationError } = utils.errors;
 
+const buildRefreshCookieOptions = (sessions, isProduction) => ({
+  httpOnly: true,
+  secure: typeof sessions.cookie?.secure === 'boolean' ? sessions.cookie.secure : isProduction,
+  sameSite: sessions.cookie?.sameSite ?? 'lax',
+  path: sessions.cookie?.path ?? '/',
+  domain: sessions.cookie?.domain,
+  maxAge: sessions.cookie?.maxAge,
+  overwrite: true,
+});
+
 const ALLOWED_LMS_ROLES = [
   'student',
   'instructor',
@@ -154,8 +164,33 @@ module.exports = (plugin) => {
 
       const sanitizedUser = await sanitizeUser(populatedUser, ctx);
 
-      // Issue JWT
-      const jwt = await strapi.plugin('users-permissions').service('jwt').issue({ id: createdUser.id });
+      const mode = strapi.config.get('plugin::users-permissions.jwtManagement', 'legacy-support');
+      let jwt;
+
+      if (mode === 'refresh') {
+        const refresh = await strapi
+          .sessionManager('users-permissions')
+          .generateRefreshToken(String(createdUser.id), undefined, { type: 'refresh' });
+        const access = await strapi
+          .sessionManager('users-permissions')
+          .generateAccessToken(refresh.token);
+
+        if ('error' in access) {
+          throw new ApplicationError('Failed to generate access token');
+        }
+
+        jwt = access.token;
+        const sessions = strapi.config.get('plugin::users-permissions.sessions');
+        const cookieName = sessions?.cookie?.name || 'strapi_up_refresh';
+        const isProduction = process.env.NODE_ENV === 'production';
+        ctx.cookies.set(
+          cookieName,
+          refresh.token,
+          buildRefreshCookieOptions(sessions, isProduction)
+        );
+      } else {
+        jwt = await strapi.plugin('users-permissions').service('jwt').issue({ id: createdUser.id });
+      }
 
       ctx.send({
         jwt,
