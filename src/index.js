@@ -92,6 +92,10 @@ module.exports = {
         const permissionsService = strapi.plugin('users-permissions').service('users-permissions');
         if (permissionsService && typeof permissionsService.getActions === 'function') {
           const allActions = await permissionsService.getActions();
+          const existingPerms = await strapi.db
+            .query('plugin::users-permissions.permission')
+            .findMany({ where: { role: adminRole.id } });
+          const existingActionSet = new Set(existingPerms.map((p) => p.action));
           const permissionInserts = [];
 
           for (const [apiName, apiObj] of Object.entries(allActions)) {
@@ -99,16 +103,7 @@ module.exports = {
             for (const [controllerName, actionsObj] of Object.entries(controllers)) {
               for (const [actionName] of Object.entries(actionsObj)) {
                 const actionKey = `${apiName}.${controllerName}.${actionName}`;
-                const exists = await strapi.db
-                  .query('plugin::users-permissions.permission')
-                  .findOne({
-                    where: {
-                      action: actionKey,
-                      role: adminRole.id,
-                    },
-                  });
-
-                if (!exists) {
+                if (!existingActionSet.has(actionKey)) {
                   permissionInserts.push({
                     action: actionKey,
                     role: adminRole.id,

@@ -11,11 +11,32 @@
   },
   "pluginOptions": {},
   "attributes": {
-    "blogid": {
-      "type": "string"
-    },
     "title": {
-      "type": "string"
+      "type": "string",
+      "required": true
+    },
+    "Description": {
+      "type": "blocks",
+      "required": true
+    },
+    "image": {
+      "type": "media",
+      "multiple": true,
+      "allowedTypes": [
+        "images",
+        "files",
+        "videos",
+        "audios"
+      ]
+    },
+    "creator": {
+      "type": "relation",
+      "relation": "oneToOne",
+      "target": "plugin::users-permissions.user"
+    },
+    "slug": {
+      "type": "uid",
+      "targetField": "title"
     }
   }
 }
