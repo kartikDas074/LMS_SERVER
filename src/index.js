@@ -29,6 +29,14 @@ const BASE_AUTHENTICATED_PERMISSIONS = [
   'plugin::users-permissions.user.updateme',
 ];
 
+const CONTENT_MANAGEMENT_APIS = new Set([
+  'api::course.course',
+  'api::lesson.lesson',
+  'api::quiz.quiz',
+  'api::blog.blog',
+  'api::course-assets.course-assets',
+]);
+
 async function ensurePermission(strapi, roleId, action) {
   const exists = await strapi.db
     .query('plugin::users-permissions.permission')
@@ -120,6 +128,35 @@ module.exports = {
             }
             strapi.log.info(`Granted ${permissionInserts.length} permissions to LMS Admin role.`);
           }
+        }
+      }
+
+      // Content Manager can operate on LMS content without system administration access.
+      const contentManagerRole = await strapi.db
+        .query('plugin::users-permissions.role')
+        .findOne({ where: { type: 'content-manager' } });
+
+      if (contentManagerRole) {
+        const permissionsService = strapi.plugin('users-permissions').service('users-permissions');
+        if (permissionsService && typeof permissionsService.getActions === 'function') {
+          const allActions = await permissionsService.getActions();
+          const existingPerms = await strapi.db
+            .query('plugin::users-permissions.permission')
+            .findMany({ where: { role: contentManagerRole.id } });
+          const existingActionSet = new Set(existingPerms.map((permission) => permission.action));
+
+          for (const [apiName, apiObj] of Object.entries(allActions)) {
+            if (!CONTENT_MANAGEMENT_APIS.has(apiName)) continue;
+            for (const [controllerName, actions] of Object.entries(apiObj.controllers || {})) {
+              for (const actionName of Object.keys(actions)) {
+                const actionKey = `${apiName}.${controllerName}.${actionName}`;
+                if (!existingActionSet.has(actionKey)) {
+                  await ensurePermission(strapi, contentManagerRole.id, actionKey);
+                }
+              }
+            }
+          }
+          strapi.log.info('Granted LMS content permissions to Content Manager role.');
         }
       }
 
