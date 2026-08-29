@@ -1,0 +1,45 @@
+{
+  "kind": "collectionType",
+  "collectionName": "quizprogresses",
+  "info": {
+    "singularName": "quizprogress",
+    "pluralName": "quizprogresses",
+    "displayName": "Quizprogress"
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "courseId": {
+      "type": "relation",
+      "relation": "oneToOne",
+      "target": "api::course.course",
+      "required": true
+    },
+    "quizId": {
+      "type": "relation",
+      "relation": "oneToOne",
+      "target": "api::quiz.quiz",
+      "required": true
+    },
+    "userId": {
+      "type": "relation",
+      "relation": "oneToOne",
+      "target": "plugin::users-permissions.user",
+      "required": true
+    },
+    "result": {
+      "type": "integer",
+      "required": true
+    },
+    "totalMarks": {
+      "type": "integer",
+      "required": true
+    },
+    "percentage": {
+      "type": "decimal",
+      "required": true
+    }
+  }
+}
