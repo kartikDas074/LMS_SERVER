@@ -46,7 +46,7 @@ module.exports = createCoreController('api::enroll.enroll', ({ strapi }) => ({
     const existingEnrollment = await strapi.db.query('api::enroll.enroll').findOne({
       where: {
         userId: authUser.id,
-        $or: [{ courseId: course.id }, { courseId: course.documentId }],
+        courseId: course.id,
       },
     });
 
@@ -58,6 +58,7 @@ module.exports = createCoreController('api::enroll.enroll', ({ strapi }) => ({
       data: {
         userId: authUser.id,
         courseId: course.id,
+        publishedAt: new Date().toISOString(),
       },
     });
 

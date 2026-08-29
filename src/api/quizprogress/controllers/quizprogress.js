@@ -57,9 +57,9 @@ module.exports = createCoreController('api::quizprogress.quizprogress', ({ strap
     // Check duplicate quiz attempt
     const existing = await strapi.db.query('api::quizprogress.quizprogress').findOne({
       where: {
-        userId: authUser.id,
-        $or: [{ courseId: course.id }, { courseId: course.documentId }],
-        $or: [{ quizId: quiz.id }, { quizId: quiz.documentId }],
+        userId: { id: authUser.id },
+        courseId: { id: course.id },
+        quizId: { id: quiz.id },
       },
     });
 
@@ -90,24 +90,38 @@ module.exports = createCoreController('api::quizprogress.quizprogress', ({ strap
 
   async find(ctx) {
     const authUser = ctx.state.user;
-    if (authUser) {
-      const fullUser = await strapi.db.query('plugin::users-permissions.user').findOne({
-        where: { id: authUser.id },
-        populate: ['role'],
-      });
-      const userRole = fullUser?.role?.type || fullUser?.role?.name || '';
-      if (String(userRole).toLowerCase() === 'student') {
-        ctx.query = {
-          ...ctx.query,
-          filters: {
-            ...(ctx.query?.filters || {}),
-            userId: {
-              id: authUser.id,
-            },
-          },
-        };
-      }
+    if (!authUser) {
+      throw new UnauthorizedError('Authentication required to view quiz progress.');
     }
-    return super.find(ctx);
+
+    const fullUser = await strapi.db.query('plugin::users-permissions.user').findOne({
+      where: { id: authUser.id },
+      populate: ['role'],
+    });
+    const userRole = fullUser?.role?.type || fullUser?.role?.name || '';
+    if (String(userRole).toLowerCase() !== 'student') {
+      return { data: [] };
+    }
+
+    const courseDocumentId = ctx.query?.filters?.courseId?.documentId?.$eq;
+    const where = { userId: authUser.id };
+    if (courseDocumentId) {
+      const course = await strapi.db.query('api::course.course').findOne({
+        where: { documentId: String(courseDocumentId) },
+        select: ['id'],
+      });
+      if (!course) return { data: [] };
+      where.courseId = course.id;
+    }
+
+    const progress = await strapi.db.query('api::quizprogress.quizprogress').findMany({
+      where,
+      populate: {
+        quizId: true,
+        courseId: true,
+      },
+    });
+
+    return { data: progress };
   },
 }));
