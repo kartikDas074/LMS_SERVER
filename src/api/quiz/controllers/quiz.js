@@ -12,24 +12,36 @@ module.exports = createCoreController('api::quiz.quiz', ({ strapi }) => ({
 		if (!user) return ctx.unauthorized('Authentication required.');
 		const courseId = ctx.request.body?.data?.courseId;
 		const course = await findCourse(strapi, courseId);
-		await assertQuizAccess(ctx, user, course);
+		const errorResponse = await assertQuizAccess(ctx, user, course);
+		if (errorResponse) return errorResponse;
 		return super.create(ctx);
 	},
 	async update(ctx) {
 		const user = ctx.state.user;
 		if (!user) return ctx.unauthorized('Authentication required.');
-		const quiz = await strapi.documents('api::quiz.quiz').findOne({ documentId: String(ctx.params.id), populate: { courseId: { populate: { instructor: true } } } });
-		await assertQuizAccess(ctx, user, quiz?.courseId);
+		const targetId = ctx.params.documentId || ctx.params.id;
+		const quiz = await findQuiz(strapi, targetId);
+		const errorResponse = await assertQuizAccess(ctx, user, quiz?.courseId);
+		if (errorResponse) return errorResponse;
 		return super.update(ctx);
 	},
 	async delete(ctx) {
 		const user = ctx.state.user;
 		if (!user) return ctx.unauthorized('Authentication required.');
-		const quiz = await strapi.documents('api::quiz.quiz').findOne({ documentId: String(ctx.params.id), populate: { courseId: { populate: { instructor: true } } } });
-		await assertQuizAccess(ctx, user, quiz?.courseId);
+		const targetId = ctx.params.documentId || ctx.params.id;
+		const quiz = await findQuiz(strapi, targetId);
+		const errorResponse = await assertQuizAccess(ctx, user, quiz?.courseId);
+		if (errorResponse) return errorResponse;
 		return super.delete(ctx);
 	},
 }));
+
+async function findQuiz(strapi, targetId) {
+	if (!targetId) return null;
+	return /^\d+$/.test(String(targetId))
+		? strapi.db.query('api::quiz.quiz').findOne({ where: { id: Number(targetId) }, populate: ['courseId', 'courseId.instructor'] })
+		: strapi.documents('api::quiz.quiz').findOne({ documentId: String(targetId), populate: { courseId: { populate: { instructor: true } } } });
+}
 
 async function findCourse(strapi, courseId) {
 	if (!courseId) return null;
@@ -42,4 +54,5 @@ async function assertQuizAccess(ctx, user, course) {
 	if (!course) return ctx.notFound('Course not found.');
 	const role = String(user.role?.type || user.role?.name || '').toLowerCase();
 	if (role === 'instructor' && String(course.instructor?.id) !== String(user.id)) return ctx.forbidden('You are not authorized to manage quizzes for this course.');
+	return null;
 }
