@@ -6,6 +6,24 @@
 
 const { createCoreController } = require('@strapi/strapi').factories;
 
+function normalizeRoleName(value) {
+	const raw = String(value ?? '').trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+	if (!raw) return '';
+	if (raw.includes('admin')) return 'admin';
+	if (raw.includes('content manager')) return 'content-manager';
+	if (raw.includes('instructor')) return 'instructor';
+	if (raw.includes('student')) return 'student';
+	if (raw.includes('public')) return 'public';
+	if (raw.includes('authenticated')) return 'authenticated';
+	return raw;
+}
+
+function resolveRole(userLike) {
+	if (!userLike) return '';
+	const role = userLike.role;
+	return normalizeRoleName(role?.type || role?.name || role || userLike.type || userLike.name || '');
+}
+
 module.exports = createCoreController('api::course.course', function ({ strapi }) {
 	return {
 		async find(ctx) {
@@ -178,12 +196,11 @@ module.exports = createCoreController('api::course.course', function ({ strapi }
 				populate: ['role'],
 			});
 
-			const role = String(fullUser?.role?.type || fullUser?.role?.name || '').toLowerCase();
-			
-			if (role !== 'admin' && role !== 'content-manager' && role !== 'instructor') {
+			const role = resolveRole(authUser) || resolveRole(fullUser);
+			if (!['admin', 'content-manager', 'instructor'].includes(role)) {
 				return ctx.forbidden('Access denied. Role not authorized.');
 			}
-			
+
 			const courseId = ctx.query.courseId;
 			if (!courseId) return ctx.badRequest('courseId is required');
 
@@ -202,56 +219,100 @@ module.exports = createCoreController('api::course.course', function ({ strapi }
 
 			if (!course) return ctx.notFound('Course not found.');
 
-			if (role === 'instructor') {
-				if (String(course.instructor && course.instructor.id) !== String(authUser.id)) {
-					return ctx.forbidden('You are not authorized to view progress for this course.');
-				}
+			if (role === 'instructor' && String(course.instructor?.id) !== String(authUser.id)) {
+				return ctx.forbidden('You are not authorized to view progress for this course.');
 			}
 
-			// Find all enrollments for this course
 			const enrollments = await strapi.documents('api::enroll.enroll').findMany({
 				filters: { courseId: { documentId: course.documentId } },
 				populate: { userId: true },
 			});
 
-			// Find total lessons for this course
 			const lessons = await strapi.documents('api::lesson.lesson').findMany({
 				filters: { courseId: { documentId: course.documentId } },
+				populate: { courseId: true },
 			});
 			const totalLessons = lessons.length;
 
-			const students = [];
+			const studentIds = enrollments
+				.map((enroll) => enroll.userId?.id)
+				.filter((id) => id != null);
 
-			for (const enroll of enrollments) {
-				if (!enroll.userId) continue;
-				
-				const studentId = enroll.userId.id;
-				const studentName = enroll.userId.username || enroll.userId.email || 'Unknown Student';
-
-				// Find completed lessons for this student in this course
-				const progresses = await strapi.documents('api::lesson-progress.lesson-progress').findMany({
+			const lessonProgressRecords = studentIds.length
+				? await strapi.documents('api::lesson-progress.lesson-progress').findMany({
 					filters: {
 						courseId: { documentId: course.documentId },
-						userId: { id: studentId },
-						completed: true
-					}
-				});
+						userId: { id: { $in: studentIds } },
+					},
+					populate: { lessonId: true, userId: true },
+				})
+				: [];
 
-				const completedLessons = progresses.length;
-				const progressPercent = totalLessons === 0 ? 0 : Math.round((completedLessons / totalLessons) * 100);
+			const quizProgressRecords = studentIds.length
+				? await strapi.documents('api::quizprogress.quizprogress').findMany({
+					filters: {
+						courseId: { documentId: course.documentId },
+						userId: { id: { $in: studentIds } },
+					},
+					populate: { quizId: true, userId: true },
+				})
+				: [];
 
-				students.push({
-					name: studentName,
-					progress: progressPercent
+			const lessonMap = {};
+			for (const progress of lessonProgressRecords) {
+				if (!progress?.userId?.id || progress.completed !== true) continue;
+				const studentId = progress.userId.id;
+				if (!lessonMap[studentId]) lessonMap[studentId] = new Set();
+				const lessonId = progress.lessonId?.documentId || progress.lessonId?.id;
+				if (lessonId) lessonMap[studentId].add(String(lessonId));
+			}
+
+			const quizMap = {};
+			for (const progress of quizProgressRecords) {
+				if (!progress?.userId?.id) continue;
+				const studentId = progress.userId.id;
+				if (!quizMap[studentId]) quizMap[studentId] = [];
+				quizMap[studentId].push({
+					id: progress.documentId || progress.id,
+					title: progress.quizId?.title || 'Quiz',
+					result: Number(progress.result) || 0,
+					totalMarks: Number(progress.totalMarks) || 0,
+					percentage: Number(progress.percentage) || 0,
 				});
 			}
 
+			const students = enrollments
+				.map((enroll) => {
+					const user = enroll.userId;
+					if (!user) return null;
+
+					const studentId = user.id;
+					const completedLessonSet = lessonMap[studentId] || new Set();
+					const completedLessons = completedLessonSet.size;
+					const lessonPercent = totalLessons === 0 ? 0 : Math.round((completedLessons / totalLessons) * 100);
+					const studentQuizzes = quizMap[studentId] || [];
+
+					return {
+						id: studentId,
+						documentId: user.documentId || user.id,
+						name: user.username || user.firstName || user.lastName || 'Unknown Student',
+						email: user.email || 'No email provided',
+						completedLessons,
+						totalLessons,
+						lessonPercent,
+						quizSummary: studentQuizzes,
+					};
+				})
+				.filter(Boolean);
+
 			return {
 				course: {
-					id: course.documentId,
-					title: course.title
+					id: course.documentId || course.id,
+					title: course.title,
+					totalLessons,
+					enrolledStudents: students.length,
 				},
-				students
+				students,
 			};
 		}
 	};

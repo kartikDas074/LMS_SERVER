@@ -54,16 +54,12 @@ module.exports = createCoreController('api::enroll.enroll', ({ strapi }) => ({
       throw new ValidationError('You are already enrolled in this course.');
     }
 
-    const created = await strapi.db.query('api::enroll.enroll').create({
+    const created = await strapi.documents('api::enroll.enroll').create({
       data: {
         userId: authUser.id,
         courseId: course.id,
-        publishedAt: new Date().toISOString(),
       },
-    });
-
-    const populated = await strapi.db.query('api::enroll.enroll').findOne({
-      where: { id: created.id },
+      status: 'published',
       populate: {
         courseId: {
           populate: {
@@ -77,7 +73,7 @@ module.exports = createCoreController('api::enroll.enroll', ({ strapi }) => ({
       },
     });
 
-    return { data: populated };
+    return { data: created };
   },
 
   async find(ctx) {

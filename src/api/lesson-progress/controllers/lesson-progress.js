@@ -15,6 +15,15 @@ module.exports = createCoreController('api::lesson-progress.lesson-progress', ({
       throw new UnauthorizedError('Authentication required to update lesson progress.');
     }
 
+    const fullUser = await strapi.db.query('plugin::users-permissions.user').findOne({
+      where: { id: authUser.id },
+      populate: ['role'],
+    });
+    const userRole = fullUser?.role?.type || fullUser?.role?.name || '';
+    if (String(userRole).toLowerCase() !== 'student') {
+      throw new Error('Only student accounts can update lesson progress.');
+    }
+
     const requestData = ctx.request.body?.data || ctx.request.body || {};
     const { courseId: rawCourseId, lessonId: rawLessonId, completed = true } = requestData;
 
@@ -22,7 +31,6 @@ module.exports = createCoreController('api::lesson-progress.lesson-progress', ({
       throw new ValidationError('Both courseId and lessonId are required.');
     }
 
-    // Resolve course
     let course = null;
     if (typeof rawCourseId === 'string' && isNaN(Number(rawCourseId))) {
       course = await strapi.documents('api::course.course').findOne({ documentId: rawCourseId });
@@ -35,7 +43,6 @@ module.exports = createCoreController('api::lesson-progress.lesson-progress', ({
       throw new NotFoundError('Course not found.');
     }
 
-    // Resolve lesson
     let lesson = null;
     if (typeof rawLessonId === 'string' && isNaN(Number(rawLessonId))) {
       lesson = await strapi.documents('api::lesson.lesson').findOne({ documentId: rawLessonId });
@@ -48,7 +55,20 @@ module.exports = createCoreController('api::lesson-progress.lesson-progress', ({
       throw new NotFoundError('Lesson not found.');
     }
 
-    // Check if progress already exists for this user + course + lesson
+    if (String(lesson.courseId?.id || lesson.courseId || course.id) !== String(course.id)) {
+      throw new ValidationError('The selected lesson does not belong to the specified course.');
+    }
+
+    const enrollment = await strapi.db.query('api::enroll.enroll').findOne({
+      where: {
+        userId: authUser.id,
+        courseId: course.id,
+      },
+    });
+    if (!enrollment) {
+      throw new ValidationError('You must be enrolled in this course before marking a lesson complete.');
+    }
+
     const existing = await strapi.db.query('api::lesson-progress.lesson-progress').findOne({
       where: {
         userId: { id: authUser.id },
@@ -58,25 +78,24 @@ module.exports = createCoreController('api::lesson-progress.lesson-progress', ({
     });
 
     if (existing) {
-      // Update existing record
       const updated = await strapi.documents('api::lesson-progress.lesson-progress').update({
         documentId: existing.documentId,
         data: {
           completed: Boolean(completed),
         },
+        status: 'published',
       });
-      return { data: updated };
+      return { data: updated, meta: { message: 'Lesson progress already existed and was updated.' } };
     }
 
-    // Create new progress record
     const created = await strapi.documents('api::lesson-progress.lesson-progress').create({
       data: {
         userId: authUser.id,
-        courseId: course.documentId || course.id,
-        lessonId: lesson.documentId || lesson.id,
+        courseId: course.id,
+        lessonId: lesson.id,
         completed: Boolean(completed),
-        publishedAt: new Date().toISOString(),
       },
+      status: 'published',
     });
 
     return { data: created };

@@ -15,6 +15,15 @@ module.exports = createCoreController('api::quizprogress.quizprogress', ({ strap
       throw new UnauthorizedError('Authentication required to submit quiz progress.');
     }
 
+    const fullUser = await strapi.db.query('plugin::users-permissions.user').findOne({
+      where: { id: authUser.id },
+      populate: ['role'],
+    });
+    const userRole = fullUser?.role?.type || fullUser?.role?.name || '';
+    if (String(userRole).toLowerCase() !== 'student') {
+      throw new Error('Only student accounts can submit quiz progress.');
+    }
+
     const requestData = ctx.request.body?.data || ctx.request.body || {};
     const {
       courseId: rawCourseId,
@@ -28,7 +37,6 @@ module.exports = createCoreController('api::quizprogress.quizprogress', ({ strap
       throw new ValidationError('Both courseId and quizId are required.');
     }
 
-    // Resolve course
     let course = null;
     if (typeof rawCourseId === 'string' && isNaN(Number(rawCourseId))) {
       course = await strapi.documents('api::course.course').findOne({ documentId: rawCourseId });
@@ -41,7 +49,6 @@ module.exports = createCoreController('api::quizprogress.quizprogress', ({ strap
       throw new NotFoundError('Course not found.');
     }
 
-    // Resolve quiz
     let quiz = null;
     if (typeof rawQuizId === 'string' && isNaN(Number(rawQuizId))) {
       quiz = await strapi.documents('api::quiz.quiz').findOne({ documentId: rawQuizId });
@@ -54,7 +61,20 @@ module.exports = createCoreController('api::quizprogress.quizprogress', ({ strap
       throw new NotFoundError('Quiz not found.');
     }
 
-    // Check duplicate quiz attempt
+    if (String(quiz.courseId?.id || quiz.courseId || course.id) !== String(course.id)) {
+      throw new ValidationError('The selected quiz does not belong to the specified course.');
+    }
+
+    const enrollment = await strapi.db.query('api::enroll.enroll').findOne({
+      where: {
+        userId: authUser.id,
+        courseId: course.id,
+      },
+    });
+    if (!enrollment) {
+      throw new ValidationError('You must be enrolled in this course before submitting a quiz.');
+    }
+
     const existing = await strapi.db.query('api::quizprogress.quizprogress').findOne({
       where: {
         userId: { id: authUser.id },
@@ -76,13 +96,13 @@ module.exports = createCoreController('api::quizprogress.quizprogress', ({ strap
     const created = await strapi.documents('api::quizprogress.quizprogress').create({
       data: {
         userId: authUser.id,
-        courseId: course.documentId || course.id,
-        quizId: quiz.documentId || quiz.id,
+        courseId: course.id,
+        quizId: quiz.id,
         result: numericResult,
         totalMarks: numericTotalMarks,
         percentage: computedPercentage,
-        publishedAt: new Date().toISOString(),
       },
+      status: 'published',
     });
 
     return { data: created };

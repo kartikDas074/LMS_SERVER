@@ -5,6 +5,9 @@ module.exports = {
       path: '/student-progress',
       handler: 'course.studentProgress',
       config: {
+        auth: {
+          scope: [],
+        },
         policies: [],
       },
     },
