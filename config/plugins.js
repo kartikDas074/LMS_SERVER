@@ -20,24 +20,34 @@ const deniedExecutableTypes = [
   'application/x-mach-binary',
 ];
 
-module.exports = () => ({
-  'users-permissions': {
-    config: {
-      jwtManagement: 'refresh',
-      sessions: {
-        accessTokenLifespan: 10 * 60,
-        maxRefreshTokenLifespan: 30 * 24 * 60 * 60,
-        idleRefreshTokenLifespan: 14 * 24 * 60 * 60,
-        httpOnly: true,
+module.exports = ({ env }) => {
+  const isProduction = env('NODE_ENV', 'development') === 'production';
+
+  return {
+    'users-permissions': {
+      config: {
+        jwtManagement: 'refresh',
+        sessions: {
+          accessTokenLifespan: 10 * 60,
+          maxRefreshTokenLifespan: 30 * 24 * 60 * 60,
+          idleRefreshTokenLifespan: 14 * 24 * 60 * 60,
+          httpOnly: true,
+          cookie: {
+            secure: isProduction ? true : env.bool('COOKIE_SECURE', false),
+            sameSite: env('COOKIE_SAMESITE', isProduction ? 'none' : 'lax'),
+            path: '/',
+          },
+        },
       },
     },
-  },
-  upload: {
-    config: {
-      security: {
-        allowedTypes: allowedMediaTypes,
-        deniedTypes: deniedExecutableTypes,
+    upload: {
+      config: {
+        security: {
+          allowedTypes: allowedMediaTypes,
+          deniedTypes: deniedExecutableTypes,
+        },
       },
     },
-  },
-});
+  };
+};
+

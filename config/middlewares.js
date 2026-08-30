@@ -20,7 +20,7 @@ module.exports = ({ env }) => {
       origin: origins,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
-      headers: ['Content-Type', 'Authorization', 'Origin', 'Accept', 'X-Requested-With'],
+      headers: ['Content-Type', 'Authorization', 'Origin', 'Accept', 'X-Requested-With', 'X-Strapi-Refresh-Cookie'],
       keepHeaderOnError: true,
     },
   },

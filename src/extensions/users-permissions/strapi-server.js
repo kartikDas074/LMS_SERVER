@@ -6,11 +6,11 @@ const { ApplicationError, ValidationError } = utils.errors;
 
 const buildRefreshCookieOptions = (sessions, isProduction) => ({
   httpOnly: true,
-  secure: typeof sessions.cookie?.secure === 'boolean' ? sessions.cookie.secure : isProduction,
-  sameSite: sessions.cookie?.sameSite ?? 'lax',
-  path: sessions.cookie?.path ?? '/',
-  domain: sessions.cookie?.domain,
-  maxAge: sessions.cookie?.maxAge,
+  secure: typeof sessions?.cookie?.secure === 'boolean' ? sessions.cookie.secure : isProduction,
+  sameSite: sessions?.cookie?.sameSite ?? (isProduction ? 'none' : 'lax'),
+  path: sessions?.cookie?.path ?? '/',
+  domain: sessions?.cookie?.domain,
+  maxAge: sessions?.cookie?.maxAge,
   overwrite: true,
 });
 
